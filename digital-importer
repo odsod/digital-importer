@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+
+'''Digital Importer.
+
+Get Spotify URIs for the most recent tracks played at Digitally Imported.
+
+Usage:
+    digital-importer list-channels
+    digital-importer get-similar-channels <channel-key>
+    digital-importer get-latest-tracks <channel-key>
+
+Examples:
+    digital-importer list-channels
+    digital-importer get-similar-channels deephouse
+    digital-importer get-latest-tracks deeptech
+'''
+
+import requests
+from docopt import docopt
+from collections import namedtuple
+
+
+VERSION = '1.0'
+
+DI_CONFIG_URL = 'http://www.di.fm/webplayer3/config'
+
+DiChannel = namedtuple('DiChannel', [
+    'channel_id', 'key', 'description', 'similar_channel_ids'])
+
+
+def di_channel_history_url(channel_id, per_page=30):
+    return ('http://www.di.fm/_papi/v1/di/track_history/channel/{}?per_page={}'
+            .format(channel_id, per_page))
+
+
+def spotify_track_search_url(track_title, market='SE'):
+    return ('https://api.spotify.com/v1/search'
+            '?q={}&type=track&market={}&limit=1'
+            .format(track_title, market))
+
+
+def get_di_channels():
+    r = requests.get(DI_CONFIG_URL)
+    r.raise_for_status()
+    config = r.json()
+    return [
+        DiChannel(
+            channel_id=channel['id'],
+            key=channel['key'],
+            description=channel['description_short'],
+            similar_channel_ids=[
+                similar_channel['similar_channel_id']
+                for similar_channel in channel['similar_channels']])
+        for channel in config['API']['Config']['channels']]
+
+
+def get_latest_di_track_titles(di_channel_id):
+    r = requests.get(di_channel_history_url(di_channel_id))
+    r.raise_for_status()
+    return [
+        item['track']
+        for item in r.json()
+        if item['type'] == 'track' and item['release']]
+
+
+def search_spotify_for_track_uri(track_title, market='SE'):
+    r = requests.get(spotify_track_search_url(track_title))
+    r.raise_for_status()
+    search_result = r.json()
+    if search_result['tracks']['items']:
+        return search_result['tracks']['items'][0]['uri']
+    else:
+        return None
+
+
+def pretty_print_channels(channels):
+    longest_channel_key = max(len(channel.key) for channel in channels)
+    for channel in sorted(channels, key=lambda c: c.key):
+        print('{}{}'.format(
+              str.ljust(channel.key.strip(), longest_channel_key + 2),
+              channel.description.strip()))
+
+
+def main(args):
+
+    if args['list-channels']:
+        pretty_print_channels(get_di_channels())
+
+    elif args['get-similar-channels']:
+        channel_key = args['<channel-key>']
+        di_channels = get_di_channels()
+        by_key = {channel.key: channel for channel in di_channels}
+        by_id = {channel.channel_id: channel for channel in di_channels}
+        similar_channels = [
+            by_id[similar_channel_id]
+            for similar_channel_id in by_key[channel_key].similar_channel_ids]
+        pretty_print_channels(similar_channels)
+
+    elif args['get-latest-tracks']:
+        channel_key = args['<channel-key>']
+        by_key = {channel.key: channel for channel in get_di_channels()}
+        channel_id = by_key[channel_key].channel_id
+        for track_title in get_latest_di_track_titles(channel_id):
+            spotify_track_uri = search_spotify_for_track_uri(track_title)
+            if spotify_track_uri:
+                print(spotify_track_uri)
+
+
+if __name__ == '__main__':
+    main(docopt(__doc__, version=VERSION))
