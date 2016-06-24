@@ -8,14 +8,19 @@ Usage:
     digital-importer list-channels
     digital-importer get-similar-channels <channel-key>
     digital-importer get-latest-tracks <channel-key>
+    digital-importer dump-latest-tracks <channel-key> <dump-folder>
 
 Examples:
     digital-importer list-channels
     digital-importer get-similar-channels deephouse
     digital-importer get-latest-tracks deeptech
+    digital-importer dump-latest-tracks melodicprogressive .
 '''
 
+import datetime
+import os
 import requests
+from sys import stderr
 from docopt import docopt
 from collections import namedtuple
 
@@ -40,6 +45,7 @@ def spotify_track_search_url(track_title, market='SE'):
 
 
 def get_di_channels():
+    print('>>> Getting list of di.fm channels...', file=stderr)
     r = requests.get(DI_CONFIG_URL)
     r.raise_for_status()
     config = r.json()
@@ -55,6 +61,9 @@ def get_di_channels():
 
 
 def get_latest_di_track_titles(di_channel_id):
+    print('>>> Getting latest tracks from channel id {}...'
+          .format(di_channel_id),
+          file=stderr)
     r = requests.get(di_channel_history_url(di_channel_id))
     r.raise_for_status()
     return [
@@ -64,6 +73,9 @@ def get_latest_di_track_titles(di_channel_id):
 
 
 def search_spotify_for_track_uri(track_title, market='SE'):
+    print('>>> Searching Spotify for track with title {}...'
+          .format(track_title),
+          file=stderr)
     r = requests.get(spotify_track_search_url(track_title))
     r.raise_for_status()
     search_result = r.json()
@@ -71,6 +83,17 @@ def search_spotify_for_track_uri(track_title, market='SE'):
         return search_result['tracks']['items'][0]['uri']
     else:
         return None
+
+
+def get_latest_tracks(channel_key):
+    result = []
+    by_key = {channel.key: channel for channel in get_di_channels()}
+    channel_id = by_key[channel_key].channel_id
+    for track_title in get_latest_di_track_titles(channel_id):
+        spotify_track_uri = search_spotify_for_track_uri(track_title)
+        if spotify_track_uri:
+            result.append(spotify_track_uri)
+    return result
 
 
 def pretty_print_channels(channels):
@@ -97,13 +120,18 @@ def main(args):
         pretty_print_channels(similar_channels)
 
     elif args['get-latest-tracks']:
+        for spotify_track_uri in get_latest_tracks(args['<channel-key>']):
+            print(spotify_track_uri)
+
+    elif args['dump-latest-tracks']:
         channel_key = args['<channel-key>']
-        by_key = {channel.key: channel for channel in get_di_channels()}
-        channel_id = by_key[channel_key].channel_id
-        for track_title in get_latest_di_track_titles(channel_id):
-            spotify_track_uri = search_spotify_for_track_uri(track_title)
-            if spotify_track_uri:
-                print(spotify_track_uri)
+        dump_folder = args['<dump-folder>']
+        file_name = '{}-{}'.format(
+            channel_key,
+            datetime.datetime.now().strftime('%Y-%m-%dT%H%M'))
+        file_path = os.path.join(dump_folder, file_name)
+        with open(file_path, 'w') as f:
+            f.write('\n'.join(get_latest_tracks(channel_key)))
 
 
 if __name__ == '__main__':
