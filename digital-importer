@@ -8,19 +8,19 @@ Usage:
     digital-importer list-channels
     digital-importer get-similar-channels <channel-key>
     digital-importer get-latest-tracks <channel-key>
-    digital-importer dump-latest-tracks <channel-key> <dump-folder>
+    digital-importer dump-latest-tracks <dump-folder> <channel-keys>...
 
 Examples:
     digital-importer list-channels
     digital-importer get-similar-channels deephouse
     digital-importer get-latest-tracks deeptech
-    digital-importer dump-latest-tracks melodicprogressive .
+    digital-importer dump-latest-tracks ./dump deeptech deephouse
 '''
 
 import datetime
 import os
 import requests
-from sys import stderr
+import sys
 from docopt import docopt
 from collections import namedtuple
 
@@ -45,10 +45,11 @@ def spotify_track_search_url(track_title, market='SE'):
 
 
 def get_di_channels():
-    print('>>> Getting list of di.fm channels...', file=stderr)
+    sys.stderr.write('>>> Getting list of di.fm channels...')
     r = requests.get(DI_CONFIG_URL)
     r.raise_for_status()
     config = r.json()
+    sys.stderr.write(' OK\n')
     return [
         DiChannel(
             channel_id=channel['id'],
@@ -61,11 +62,12 @@ def get_di_channels():
 
 
 def get_latest_di_track_titles(di_channel_id):
-    print('>>> Getting latest tracks from channel id {}...'
-          .format(di_channel_id),
-          file=stderr)
+    sys.stderr.write(
+        '>>> Getting latest tracks from channel id {}...'
+        .format(di_channel_id))
     r = requests.get(di_channel_history_url(di_channel_id))
     r.raise_for_status()
+    sys.stderr.write(' OK\n')
     return [
         item['track']
         for item in r.json()
@@ -73,15 +75,17 @@ def get_latest_di_track_titles(di_channel_id):
 
 
 def search_spotify_for_track_uri(track_title, market='SE'):
-    print('>>> Searching Spotify for track with title {}...'
-          .format(track_title),
-          file=stderr)
+    sys.stderr.write(
+        '>>> Searching Spotify for track with title {}...'
+        .format(track_title))
     r = requests.get(spotify_track_search_url(track_title))
     r.raise_for_status()
     search_result = r.json()
     if search_result['tracks']['items']:
+        sys.stderr.write(' OK\n')
         return search_result['tracks']['items'][0]['uri']
     else:
+        sys.stderr.write(' NOT FOUND\n')
         return None
 
 
@@ -124,14 +128,14 @@ def main(args):
             print(spotify_track_uri)
 
     elif args['dump-latest-tracks']:
-        channel_key = args['<channel-key>']
         dump_folder = args['<dump-folder>']
-        file_name = '{}-{}'.format(
-            channel_key,
-            datetime.datetime.now().strftime('%Y-%m-%dT%H%M'))
-        file_path = os.path.join(dump_folder, file_name)
-        with open(file_path, 'w') as f:
-            f.write('\n'.join(get_latest_tracks(channel_key)))
+        for channel_key in args['<channel-keys>']:
+            file_name = '{}-{}'.format(
+                channel_key,
+                datetime.datetime.now().strftime('%Y-%m-%dT%H%M'))
+            file_path = os.path.join(dump_folder, file_name)
+            with open(file_path, 'w') as f:
+                f.write('\n'.join(get_latest_tracks(channel_key)))
 
 
 if __name__ == '__main__':
